@@ -45,7 +45,7 @@ export function publicRoutes(app: Hono): void {
       body: JSON.stringify({
         model: "gemma2:2b",
         stream: false,
-        format: "json",
+        format: "text",
         prompt: decodedText
       })
     })
