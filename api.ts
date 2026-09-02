@@ -6,6 +6,36 @@ import { handleFileUpload } from "./tools/fileUpload.ts";
 export function publicRoutes(app: Hono): void {
   app.get("/hello", (c) => c.json({ message: "Hello World" }));
 
+  app.post("/infer-address", async (c) => {
+    const { input } = await c.req.json();
+    if (!input || typeof input !== "string") {
+      return c.json({ error: "input string is required" }, 400);
+    }
+
+    const ollamaRes = await fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gemma2:2b",
+        stream: false,
+        format: "json",
+        prompt: `Extract the address information and infer any unknowns from the following text and return a JSON object with exactly these keys: "address", "city", "country". If a field cannot be determined, use null. Return only valid JSON, no explanation. Also fix capitalization of city and state\n\nText: ${input}`,
+      }),
+    });
+
+    if (!ollamaRes.ok) {
+      return c.json({ error: "Ollama request failed" }, 502);
+    }
+
+    const ollamaData = await ollamaRes.json() as { response: string };
+    try {
+      const parsed = JSON.parse(ollamaData.response);
+      return c.json(parsed);
+    } catch {
+      return c.json({ error: "Failed to parse model response", raw: ollamaData.response }, 500);
+    }
+  });
+
   app.post("/file-upload", async (c) => {
     const result = await handleFileUpload(c);
     console.log("File upload result:", result);

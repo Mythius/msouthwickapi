@@ -65,6 +65,13 @@ function microsoftOAuth() {
   }
 }
 
+async function inferAddress(input) {
+  return await request("/infer-address", {
+    method: "POST",
+    body: JSON.stringify({ input }),
+  });
+}
+
 async function logout() {
   let req = await fetch("/auth", {
     method: "DELETE",
