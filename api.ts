@@ -52,7 +52,7 @@ export function publicRoutes(app: Hono): void {
       return c.json({ error: "Ollama request failed" }, 502);
     }
     const ollamaData = await ollamaRes.json() as { response: string };
-    return c.json(ollamaData.response);
+    return c.json(ollamaData.response.trim());
   });
 
   app.post("/file-upload", async (c) => {
