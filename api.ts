@@ -36,6 +36,26 @@ export function publicRoutes(app: Hono): void {
     }
   });
 
+  app.get("/any/:encodedText", async (c) => {
+    const encodedText = c.req.param("encodedText");
+    const decodedText = decodeURIComponent(encodedText);
+    const ollamaRes = await fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gemma2:2b",
+        stream: false,
+        format: "json",
+        prompt: decodedText
+      })
+    })
+    if(!ollamaRes.ok) {
+      return c.json({ error: "Ollama request failed" }, 502);
+    }
+    const ollamaData = await ollamaRes.json() as { response: string };
+    return c.json(ollamaData);
+  });
+
   app.post("/file-upload", async (c) => {
     const result = await handleFileUpload(c);
     console.log("File upload result:", result);
