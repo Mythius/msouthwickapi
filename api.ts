@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { Session } from "./tools/auth.ts";
-// import { exposePrismaCRUD } from "./tools/prisma.ts";
+import { prisma } from "./tools/prisma.ts";
 import { handleFileUpload } from "./tools/fileUpload.ts";
+import { readdir } from "node:fs/promises";
 
 export function publicRoutes(app: Hono): void {
   app.get("/hello", (c) => c.json({ message: "Hello World" }));
@@ -27,12 +28,15 @@ export function publicRoutes(app: Hono): void {
       return c.json({ error: "Ollama request failed" }, 502);
     }
 
-    const ollamaData = await ollamaRes.json() as { response: string };
+    const ollamaData = (await ollamaRes.json()) as { response: string };
     try {
       const parsed = JSON.parse(ollamaData.response);
       return c.json(parsed);
     } catch {
-      return c.json({ error: "Failed to parse model response", raw: ollamaData.response }, 500);
+      return c.json(
+        { error: "Failed to parse model response", raw: ollamaData.response },
+        500,
+      );
     }
   });
 
@@ -45,13 +49,13 @@ export function publicRoutes(app: Hono): void {
       body: JSON.stringify({
         model: "gemma2:2b",
         stream: false,
-        prompt: decodedText
-      })
-    })
-    if(!ollamaRes.ok) {
+        prompt: decodedText,
+      }),
+    });
+    if (!ollamaRes.ok) {
       return c.json({ error: "Ollama request failed" }, 502);
     }
-    const ollamaData = await ollamaRes.json() as { response: string };
+    const ollamaData = (await ollamaRes.json()) as { response: string };
     return c.json(ollamaData.response.trim());
   });
 
@@ -65,6 +69,41 @@ export function publicRoutes(app: Hono): void {
     const data = await c.req.json();
     console.log("Received JSON:", data);
     return c.json({ received: data });
+  });
+
+  app.post("/submit-level", async (c) => {
+    try {
+      const { level_code, user } = await c.req.json();
+      if (typeof level_code !== "string" || !level_code.trim()) {
+        return c.json({ error: "level_code string is required" }, 400);
+      }
+      const result = await prisma.spinnylines_level_submissions.create({
+        data: { level_code, user: typeof user === "string" ? user : null },
+      });
+      return c.json(result, 201);
+    } catch (e) {
+      console.error("submit-level failed:", e);
+      return c.json({ error: "Failed to submit level" }, 400);
+    }
+  });
+
+  app.get("/submit-level", async (c) => {
+    const data = await prisma.spinnylines_level_submissions.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    return c.json(data);
+  });
+
+  app.get("/static-directory", async (c) => {
+    try {
+      const files = await readdir(
+        "/home/matthias/Documents/WEBSITE/site/static",
+      );
+      return c.json(files);
+    } catch (e) {
+      console.error("static-directory failed:", e);
+      return c.json({ error: "Could not read static directory" }, 500);
+    }
   });
 }
 
