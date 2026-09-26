@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import { cors } from "hono/cors";
 import { expose } from "./tools/listEndpoints.ts";
 import {
   setupPublicRoutes as authPublic,
@@ -11,6 +12,12 @@ import {
 import * as API from "./api.ts";
 
 const app = new Hono();
+
+app.use(
+  "/*",
+  cors({ origin: ["https://msouthwick.com", "https://www.msouthwick.com"] }),
+);
+
 expose(app);
 
 app.use("/*", serveStatic({ root: "./public" }));
