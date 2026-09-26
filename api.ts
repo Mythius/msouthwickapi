@@ -3,6 +3,7 @@ import type { Session } from "./tools/auth.ts";
 import { prisma } from "./tools/prisma.ts";
 import { handleFileUpload } from "./tools/fileUpload.ts";
 import { readdir } from "node:fs/promises";
+import notify from "./tools/notify.ts";
 
 export function publicRoutes(app: Hono): void {
   app.get("/hello", (c) => c.json({ message: "Hello World" }));
@@ -80,6 +81,8 @@ export function publicRoutes(app: Hono): void {
       const result = await prisma.spinnylines_level_submissions.create({
         data: { level_code, user: typeof user === "string" ? user : null },
       });
+      let msg = `${user || "Someone"} submitted a level on spinny lines`;
+      notify(msg);
       return c.json(result, 201);
     } catch (e) {
       console.error("submit-level failed:", e);
