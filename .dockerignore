@@ -9,4 +9,4 @@ auth.json
 .gitattributes
 .gitignore
 example-env
-server.sh
+server.shspotify-token.json

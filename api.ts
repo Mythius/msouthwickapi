@@ -5,6 +5,58 @@ import { handleFileUpload } from "./tools/fileUpload.ts";
 import { readdir } from "node:fs/promises";
 import notify from "./tools/notify.ts";
 
+const SPOTIFY_CLIENT_ID =
+  process.env.SPOTIFY_CLIENT_ID || "a42e0beff7d048fb9b6643bfbaac4581";
+// Must exactly match a Redirect URI in the Spotify app settings.
+const SPOTIFY_REDIRECT_URI =
+  process.env.SPOTIFY_REDIRECT_URI || "https://api.msouthwick.com/spotify";
+const SPOTIFY_TOKEN_FILE = "./spotify-token.json";
+
+type SpotifyAuth = { refresh_token: string; user_id: string };
+type SpotifyTokens = {
+  access_token: string;
+  expires_in: number;
+  refresh_token?: string;
+};
+
+const pendingSpotifyStates = new Set<string>();
+let spotifyAccess: { token: string; expiresAt: number } | null = null;
+
+async function readSpotifyAuth(): Promise<SpotifyAuth | null> {
+  const file = Bun.file(SPOTIFY_TOKEN_FILE);
+  return (await file.exists()) ? await file.json() : null;
+}
+
+async function spotifyTokenRequest(
+  params: Record<string, string>,
+): Promise<SpotifyTokens> {
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization:
+        "Basic " +
+        btoa(`${SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`),
+    },
+    body: new URLSearchParams(params),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Spotify token request failed (${res.status}): ${await res.text()}`,
+    );
+  }
+  return (await res.json()) as SpotifyTokens;
+}
+
+function cacheSpotifyAccess(tokens: SpotifyTokens): string {
+  // Refresh a minute early so callers never get a token about to expire.
+  spotifyAccess = {
+    token: tokens.access_token,
+    expiresAt: Date.now() + (tokens.expires_in - 60) * 1000,
+  };
+  return tokens.access_token;
+}
+
 export function publicRoutes(app: Hono): void {
   app.get("/hello", (c) => c.json({ message: "Hello World" }));
 
@@ -106,6 +158,92 @@ export function publicRoutes(app: Hono): void {
     } catch (e) {
       console.error("static-directory failed:", e);
       return c.json({ error: "Could not read static directory" }, 500);
+    }
+  });
+
+  // Visit /spotify to log in with Spotify; Spotify then redirects back here with ?code=
+  app.get("/spotify", async (c) => {
+    const error = c.req.query("error");
+    if (error) return c.text(`Spotify login failed: ${error}`, 400);
+
+    const code = c.req.query("code");
+    if (!code) {
+      const state = crypto.randomUUID();
+      pendingSpotifyStates.add(state);
+      setTimeout(() => pendingSpotifyStates.delete(state), 10 * 60 * 1000);
+      const params = new URLSearchParams({
+        client_id: SPOTIFY_CLIENT_ID,
+        response_type: "code",
+        redirect_uri: SPOTIFY_REDIRECT_URI,
+        scope: "playlist-read-private playlist-read-collaborative",
+        state,
+      });
+      return c.redirect(`https://accounts.spotify.com/authorize?${params}`);
+    }
+
+    if (!pendingSpotifyStates.delete(c.req.query("state") || "")) {
+      return c.text("Login expired or invalid, visit /spotify again", 400);
+    }
+
+    try {
+      const tokens = await spotifyTokenRequest({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: SPOTIFY_REDIRECT_URI,
+      });
+      const meRes = await fetch("https://api.spotify.com/v1/me", {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      });
+      if (!meRes.ok) {
+        throw new Error(`Spotify /me failed (${meRes.status}): ${await meRes.text()}`);
+      }
+      const me = (await meRes.json()) as { id: string; display_name?: string };
+
+      // Only the first account to link can relink, so visitors can't swap in their own account.
+      const existing = await readSpotifyAuth();
+      if (existing && existing.user_id !== me.id) {
+        return c.text(
+          `Already linked to Spotify user ${existing.user_id}. Delete ${SPOTIFY_TOKEN_FILE} on the server to link a different account.`,
+          403,
+        );
+      }
+
+      await Bun.write(
+        SPOTIFY_TOKEN_FILE,
+        JSON.stringify({ refresh_token: tokens.refresh_token, user_id: me.id }),
+      );
+      cacheSpotifyAccess(tokens);
+      return c.text(`Spotify linked to ${me.display_name || me.id}`);
+    } catch (e) {
+      console.error("spotify callback failed:", e);
+      return c.text("Spotify login failed, check the server logs", 500);
+    }
+  });
+
+  // Returns a user access token as plain text, refreshing it when it expires.
+  app.get("/spotify/token", async (c) => {
+    try {
+      if (spotifyAccess && Date.now() < spotifyAccess.expiresAt) {
+        return c.text(spotifyAccess.token);
+      }
+      const auth = await readSpotifyAuth();
+      if (!auth) return c.text("Spotify not linked, visit /spotify", 503);
+
+      const tokens = await spotifyTokenRequest({
+        grant_type: "refresh_token",
+        refresh_token: auth.refresh_token,
+      });
+      // Spotify sometimes rotates the refresh token; keep the newest one.
+      if (tokens.refresh_token) {
+        await Bun.write(
+          SPOTIFY_TOKEN_FILE,
+          JSON.stringify({ ...auth, refresh_token: tokens.refresh_token }),
+        );
+      }
+      return c.text(cacheSpotifyAccess(tokens));
+    } catch (e) {
+      console.error("spotify token refresh failed:", e);
+      return c.text("Could not get Spotify token", 500);
     }
   });
 }
