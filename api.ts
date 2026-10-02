@@ -30,6 +30,9 @@ async function readSpotifyAuth(): Promise<SpotifyAuth | null> {
 async function spotifyTokenRequest(
   params: Record<string, string>,
 ): Promise<SpotifyTokens> {
+  if (!process.env.SPOTIFY_CLIENT_SECRET) {
+    throw new Error("SPOTIFY_CLIENT_SECRET is not set in the server environment");
+  }
   const res = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: {

@@ -15,7 +15,14 @@ const app = new Hono();
 
 app.use(
   "/*",
-  cors({ origin: ["https://msouthwick.com", "https://www.msouthwick.com"] }),
+  cors({
+    origin: [
+      "https://msouthwick.com",
+      "https://www.msouthwick.com",
+      "https://tvgames.msouthwick.com",
+      "http://localhost",
+    ],
+  }),
 );
 
 expose(app);
