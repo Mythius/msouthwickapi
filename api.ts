@@ -178,7 +178,7 @@ export function publicRoutes(app: Hono): void {
         client_id: SPOTIFY_CLIENT_ID,
         response_type: "code",
         redirect_uri: SPOTIFY_REDIRECT_URI,
-        scope: "playlist-read-private playlist-read-collaborative",
+        scope: "playlist-read-private playlist-read-collaborative user-library-read",
         state,
       });
       return c.redirect(`https://accounts.spotify.com/authorize?${params}`);
